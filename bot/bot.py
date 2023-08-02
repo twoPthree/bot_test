@@ -139,10 +139,10 @@ async def start_handle(update: Update, context: CallbackContext):
     db.start_new_dialog(user_id)
 
     reply_text = "Hi! I'm <b>ChatGPT</b> bot implemented with OpenAI API 🤖\n\n"
-    reply_text += HELP_MESSAGE
+    #reply_text += HELP_MESSAGE
 
     await update.message.reply_text(reply_text, parse_mode=ParseMode.HTML)
-    await show_chat_modes_handle(update, context)
+    #await show_chat_modes_handle(update, context)
 
 
 async def help_handle(update: Update, context: CallbackContext):
@@ -649,12 +649,56 @@ async def error_handle(update: Update, context: CallbackContext) -> None:
     except:
         await context.bot.send_message(update.effective_chat.id, "Some error in error handler")
 
+
+async def audio_file_handle(update: Update, context: CallbackContext):
+    if not await is_bot_mentioned(update, context):
+        return
+
+    await register_user_if_not_exists(update, context, update.message.from_user)
+    if await is_previous_message_not_answered_yet(update, context):
+        return
+
+    user_id = update.message.from_user.id
+    db.set_user_attribute(user_id, "last_interaction", datetime.now())
+
+    audio = update.message.audio
+    if not audio:
+        await update.message.reply_text("🥲 Please, send an audio file.")
+        return
+
+    # Download the audio file
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_dir = Path(tmp_dir)
+        audio_path = tmp_dir / f"{audio.file_id}{audio.file_name}"
+        # download
+        voice_file = await context.bot.get_file(audio.file_id)
+        await voice_file.download_to_drive(audio_path)
+
+        # convert to mp3
+        #audio_mp3_path = tmp_dir / f"{audio.file_id}mp3.mp3"
+        #pydub.AudioSegment.from_file(voice_file).export(audio_mp3_path, format="mp3")
+
+        # Transcribe the audio file
+        # transcribe
+        with open(audio_path, "rb") as f:
+            transcribed_text = await openai_utils.transcribe_audio(f)
+
+            if transcribed_text is None:
+                transcribed_text = ""
+
+    # Send the transcribed text back to the user
+    text = f"🍾: <i>{transcribed_text}</i>"
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+    # Process the transcribed text further if needed
+    await message_handle(update, context, message=transcribed_text)
+
 async def post_init(application: Application):
     await application.bot.set_my_commands([
         BotCommand("/new", "Start new dialog"),
-        BotCommand("/mode", "Select chat mode"),
+        #BotCommand("/mode", "Select chat mode"),
         BotCommand("/retry", "Re-generate response for previous query"),
-        BotCommand("/balance", "Show balance"),
+        #BotCommand("/balance", "Show balance"),
         BotCommand("/settings", "Show settings"),
         BotCommand("/help", "Show help message"),
     ])
@@ -689,16 +733,17 @@ def run_bot() -> None:
     application.add_handler(CommandHandler("new", new_dialog_handle, filters=user_filter))
     application.add_handler(CommandHandler("cancel", cancel_handle, filters=user_filter))
 
+    application.add_handler(MessageHandler(filters.AUDIO & user_filter, audio_file_handle))
     application.add_handler(MessageHandler(filters.VOICE & user_filter, voice_message_handle))
 
-    application.add_handler(CommandHandler("mode", show_chat_modes_handle, filters=user_filter))
-    application.add_handler(CallbackQueryHandler(show_chat_modes_callback_handle, pattern="^show_chat_modes"))
-    application.add_handler(CallbackQueryHandler(set_chat_mode_handle, pattern="^set_chat_mode"))
+    #application.add_handler(CommandHandler("mode", show_chat_modes_handle, filters=user_filter))
+    #application.add_handler(CallbackQueryHandler(show_chat_modes_callback_handle, pattern="^show_chat_modes"))
+    #application.add_handler(CallbackQueryHandler(set_chat_mode_handle, pattern="^set_chat_mode"))
 
     application.add_handler(CommandHandler("settings", settings_handle, filters=user_filter))
     application.add_handler(CallbackQueryHandler(set_settings_handle, pattern="^set_settings"))
 
-    application.add_handler(CommandHandler("balance", show_balance_handle, filters=user_filter))
+    #application.add_handler(CommandHandler("balance", show_balance_handle, filters=user_filter))
 
     application.add_error_handler(error_handle)
 
